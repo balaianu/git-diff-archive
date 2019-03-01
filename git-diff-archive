@@ -1,0 +1,177 @@
+#!/bin/bash
+
+# generate archive of all changed files except deleted files between the 2 commits in use
+# create a deleted-files.txt file with a list of all deleted files between the 2 commits in use
+# add the deleted-files.txt file to the previously created archive
+# remove the deleted-files.txt file from our working directory
+
+VERSION_NUMBER=1.0.0
+
+version() {
+	echo " Git plugin 'diff-archive' version $(VERSION_NUMBER)"
+	echo
+}
+
+usage() {
+	echo " Export changed files between current HEAD and an older commit."
+	echo
+	echo "  Usage: git diff-archive [<options>] [<commit>]"
+	echo
+	echo "  Options:"
+	echo "    -d, --destination    Path to destination folder"
+	echo "    -n, --name           Name of the exported archive (without extension)"
+	echo "    -f, --format         Archive format (tar or zip - default: zip)"
+	echo "    -s, --stamp          Append revision info to archive name"
+	echo "    -v, --version        Display current plugin version"
+	echo "    -h, --help           Display usage information"
+	echo
+}
+
+main() {
+	echo
+
+	# Check git is installed
+	command -v git >/dev/null 2>&1 || { echo >&2 "I require git but it's not installed.  Aborting."; exit 1; }
+
+	# Set default values
+	SOURCE_PATH="$PWD"
+	DESTINATION_PATH=$HOME
+	ARCHIVE_NAME="${PWD##*/}"
+	ARCHIVE_FORMAT="zip"
+	COMMIT_HASH_ONE="HEAD^1"
+	COMMIT_HASH_TWO="HEAD"
+	APPEND_TO_NAME=""
+
+	# Collect arguments and options from command
+	PARAMS=""
+	if [ "$#" -gt 0 ]; then
+
+		while (( "$#" )); do
+		  case "$1" in
+		  	-v|--version)
+		  	  version
+		  	  exit 1
+		  	  ;;
+		  	-h|--help)
+		  	  usage
+		  	  exit 1
+		  	  ;;
+			-d|--destination)
+			  DESTINATION_PATH=$2
+			  shift 2
+			  ;;
+			-n|--name)
+			  ARCHIVE_NAME=$2
+			  shift 2
+			  ;;
+			-s|--stamp)
+			  APPEND_TO_NAME="_$(git rev-parse --short ${COMMIT_HASH_ONE})_$(git rev-parse --short ${COMMIT_HASH_TWO})"
+			  shift 1
+			  ;;
+			-f|--format)
+			  ARCHIVE_FORMAT=$2
+			  shift 2
+			  ;;
+			--) # end argument parsing
+			  shift
+			  break
+			  ;;
+			-*|--*=) # unsupported flags
+			  echo " Error: Unsupported flag $1" >&2
+			  exit 1
+			  ;;
+			*) # preserve positional arguments
+			  PARAMS="$PARAMS $1"
+			  shift
+			  ;;
+		  esac
+		done
+
+	fi
+
+	# set positional arguments in their proper place
+	eval set -- "$PARAMS"
+
+	# Look for commit hashes in the command arguments
+	# if [ $1 ]; then
+	# 	COMMIT_HASH_ONE=$1
+	# fi
+
+	# COMMIT_HASH_TWO="${COMMIT_HASH_ONE}^1"
+
+	# if [ $2 ]; then
+	# 	COMMIT_HASH_TWO=$2
+	# fi
+
+	if [ $1 ]; then
+		COMMIT_HASH_TWO=$1
+	fi
+
+	# Format the archive file name
+	ARCHIVE_NAME="${ARCHIVE_NAME}${APPEND_TO_NAME}_$( date '+%Y-%m-%d_%H-%M-%S' )"
+
+	# Check source path exists
+	if [ ! -d ${SOURCE_PATH} ]
+	then
+		echo " Cannot access the source folder. Aborting."
+		exit 1
+	fi
+
+	# Check source path contains a .git folder
+	if [ ! -d "${SOURCE_PATH}/.git" ]
+	then
+		echo " Source folder is not a git project. Aborting."
+		exit 1
+	fi
+
+	# Check destination path exists
+	if [ ! -d ${DESTINATION_PATH} ]
+	then
+		echo " Cannot access the destination folder. Aborting."
+		exit 1
+	fi
+
+	# Navigate to source path
+	cd ${SOURCE_PATH}
+
+	# Have some output of the parameters
+	echo " Exporting files started..."
+	echo
+	echo " Archiving changes between: ${COMMIT_HASH_ONE} and ${COMMIT_HASH_TWO}"
+	echo " Project path: ${SOURCE_PATH}"
+	echo " Destination path: ${DESTINATION_PATH}"
+	echo " Archive file name: ${ARCHIVE_NAME}.${ARCHIVE_FORMAT}"
+	echo
+
+	echo
+	echo " Generating content list..."
+
+	# echo
+	# git diff --diff-filter=ACMRTUXB --name-status ${COMMIT_HASH_ONE} ${COMMIT_HASH_TWO}
+	# echo
+
+	echo " Generating archive..."
+
+	# Create the archive with changed files
+	git diff --diff-filter=ACMRTUXB --name-status ${COMMIT_HASH_ONE} ${COMMIT_HASH_TWO} | awk '{ if ($1 != "D") printf("\"%s\"\n", substr($0,3)) }' | xargs git archive -o ${DESTINATION_PATH}/${ARCHIVE_NAME}.${ARCHIVE_FORMAT} HEAD --
+
+	retval=$?
+	# do_something $retval
+	if [ $retval -ne 0 ]; then
+
+	    echo
+	    echo " Archive could not be generated due to missing files between commits."
+	    echo
+
+	    rm ${DESTINATION_PATH}/${ARCHIVE_NAME}.${ARCHIVE_FORMAT}
+
+    elif [ $retval = 0 ]; then
+
+		echo
+		echo " Done!"
+		echo
+
+	fi
+}
+
+main "$@"
